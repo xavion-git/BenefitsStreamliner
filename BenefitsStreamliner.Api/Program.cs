@@ -34,6 +34,9 @@ builder.Services.AddScoped<BenefitsCheckService>();
 builder.Services.AddSingleton<IBenefitsService, MockBenefitsService>();
 builder.Services.AddSingleton<IFinanceService, MockFinanceService>();
 
+builder.Services.AddSingleton<IBusinessCentralService, MockBusinessCentralService>();
+builder.Services.AddScoped<DecisionService>();
+
 builder.Services.AddSingleton<RetryQueue>();
 builder.Services.AddHostedService<RetryWorker>();
 

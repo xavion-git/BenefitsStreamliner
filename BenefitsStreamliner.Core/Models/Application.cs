@@ -1,6 +1,6 @@
 ﻿namespace BenefitsStreamliner.Core.Models;
 
-public enum ApplicationStatus { Submitted, Processing, Completed, Error }
+public enum ApplicationStatus { Submitted, Processing, Completed, Error, Approved, Rejected, Transferred }
 
 public class Application
 {
