@@ -53,6 +53,25 @@
                 <MudText Typo="Typo.caption" Class="mt-2">
                     Integration status: iBenefits responded. Recommendation stored and sent to Finance.
                 </MudText>
+
+                <MudDivider Class="my-4" />
+                <MudText Typo="Typo.subtitle1">Finance review</MudText>
+
+                @if (_decision is null)
+                {
+                    <MudStack Row="true" Spacing="2" Class="mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="_busy"
+                                   OnClick="() => DecideAsync(true)">Approve</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="_busy"
+                                   OnClick="() => DecideAsync(false)">Reject</MudButton>
+                    </MudStack>
+                }
+                else
+                {
+                    <MudAlert Severity="@(_decision.Status == "Transferred" ? Severity.Success : Severity.Warning)" Class="mt-2">
+                        <b>Status: @_decision.Status</b><br />@_decision.Message
+                    </MudAlert>
+                }
             }
             else if (_check.Status is "RetryQueued" or "Processing")
             {
@@ -79,6 +98,7 @@
     private string? _error;
     private string? _applicationId;
     private CheckBenefitsResult? _check;
+    private CheckBenefitsResult? _decision;
 
     private async Task SubmitAsync()
     {
@@ -89,6 +109,7 @@
         _error = null;
         _applicationId = null;
         _check = null;
+        _decision = null;
         _model.DateOfBirth = _dob;
 
         var (submitted, submitError) = await Api.SubmitAsync(_model);
@@ -100,7 +121,6 @@
         }
         _applicationId = submitted.ApplicationId;
 
-        // Automatically run the benefits check after submission
         var (check, checkError) = await Api.CheckBenefitsAsync(_applicationId);
         if (check is null) _error = checkError;
         _check = check;
@@ -114,6 +134,16 @@
         _busy = true;
         var (check, error) = await Api.GetStatusAsync(_applicationId);
         if (check is null) _error = error; else _check = check;
+        _busy = false;
+    }
+
+    private async Task DecideAsync(bool approve)
+    {
+        if (_applicationId is null) return;
+        _busy = true;
+        _error = null;
+        var (result, error) = await Api.DecideAsync(_applicationId, approve);
+        if (result is null) _error = error; else _decision = result;
         _busy = false;
     }
 }

@@ -15,6 +15,10 @@ public class ApplicationApiClient(HttpClient http)
     public Task<(CheckBenefitsResult? Data, string? Error)> GetStatusAsync(string id) =>
         SendAsync<CheckBenefitsResult>(() => http.GetAsync($"api/applications/{id}"));
 
+    public Task<(CheckBenefitsResult? Data, string? Error)> DecideAsync(string id, bool approve) =>
+        SendAsync<CheckBenefitsResult>(() => http.PostAsJsonAsync($"api/applications/{id}/decision",
+            new DecisionRequest { Decision = approve ? "Approve" : "Reject" }));
+
     private static async Task<(T? Data, string? Error)> SendAsync<T>(Func<Task<HttpResponseMessage>> call)
     {
         try
