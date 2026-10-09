@@ -1,10 +1,18 @@
 using BenefitsStreamliner.Web.Components;
+using BenefitsStreamliner.Web.Services;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+
+
+builder.Services.AddMudServices();
+builder.Services.AddHttpClient<ApplicationApiClient>(c =>
+    c.BaseAddress = new Uri(builder.Configuration["ApiBaseUrl"]!));
 
 var app = builder.Build();
 

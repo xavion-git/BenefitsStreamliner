@@ -1,25 +1,40 @@
+using BenefitsStreamliner.Api.Data;
+using BenefitsStreamliner.Api.Services;
+using BenefitsStreamliner.Core.Interfaces;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-
 builder.Services.AddControllers();
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+var provider = builder.Configuration["Database:Provider"] ?? "MySql";
+var connectionString = builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("Missing ConnectionStrings:Default (use user-secrets or an env var).");
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    if (provider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase))
+        options.UseSqlite(connectionString);
+    else
+        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+});
+
+builder.Services.AddScoped<ApplicationService>();
+builder.Services.AddScoped<BenefitsCheckService>();
+
+// Swap MockBenefitsService for a RealIBenefitsService here later. Nothing else changes.
+builder.Services.AddSingleton<IBenefitsService, MockBenefitsService>();
+builder.Services.AddSingleton<IFinanceService, MockFinanceService>();
+
+builder.Services.AddSingleton<RetryQueue>();
+builder.Services.AddHostedService<RetryWorker>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+using (var scope = app.Services.CreateScope())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();   // dev convenience
 }
 
-app.UseHttpsRedirection();
-
-app.UseAuthorization();
-
 app.MapControllers();
-
 app.Run();

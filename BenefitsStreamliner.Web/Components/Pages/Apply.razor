@@ -1,0 +1,119 @@
+@page "/"
+@using BenefitsStreamliner.Core.DTOs
+@using BenefitsStreamliner.Web.Services
+@inject ApplicationApiClient Api
+
+<PageTitle>Benefits Application</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Class="pa-6" Elevation="3">
+        <MudText Typo="Typo.h5" Class="mb-4">Benefits Application</MudText>
+
+        <MudForm @ref="_form">
+            <MudTextField @bind-Value="_model.FirstName" Label="First Name" MaxLength="100"
+                          Required="true" RequiredError="First name is required" />
+            <MudTextField @bind-Value="_model.LastName" Label="Last Name" MaxLength="100"
+                          Required="true" RequiredError="Last name is required" />
+            <MudDatePicker @bind-Date="_dob" Label="Date of Birth" OpenTo="OpenTo.Year"
+                           MaxDate="DateTime.Today.AddDays(-1)"
+                           Required="true" RequiredError="Date of birth is required" />
+            <MudNumericField @bind-Value="_model.Income" Label="Annual Income ($)" Min="0" Max="10000000"
+                             Required="true" RequiredError="Income is required" />
+        </MudForm>
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4"
+                   Disabled="_busy" OnClick="SubmitAsync">
+            @if (_busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+            }
+            Submit Application
+        </MudButton>
+
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
+        }
+
+        @if (_applicationId is not null)
+        {
+            <MudAlert Severity="Severity.Success" Class="mt-4">
+                <b>Application submitted successfully!</b><br />
+                Application ID: <b>@_applicationId</b>
+            </MudAlert>
+        }
+
+        @if (_check is not null)
+        {
+            @if (_check.Status == "Completed")
+            {
+                <MudAlert Severity="@(_check.Decision == "Eligible" ? Severity.Success : Severity.Warning)" Class="mt-3">
+                    <b>Recommendation: @_check.Decision</b><br />@_check.Reason
+                </MudAlert>
+                <MudText Typo="Typo.caption" Class="mt-2">
+                    Integration status: iBenefits responded. Recommendation stored and sent to Finance.
+                </MudText>
+            }
+            else if (_check.Status is "RetryQueued" or "Processing")
+            {
+                <MudAlert Severity="Severity.Info" Class="mt-3">@_check.Message</MudAlert>
+                <MudButton Variant="Variant.Outlined" Class="mt-2" Disabled="_busy" OnClick="RefreshAsync">
+                    Refresh Status
+                </MudButton>
+            }
+            else
+            {
+                <MudAlert Severity="Severity.Error" Class="mt-3">
+                    @(_check.Message ?? "Something went wrong while checking benefits.")
+                </MudAlert>
+            }
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private MudForm? _form;
+    private readonly ApplicationRequest _model = new();
+    private DateTime? _dob;
+    private bool _busy;
+    private string? _error;
+    private string? _applicationId;
+    private CheckBenefitsResult? _check;
+
+    private async Task SubmitAsync()
+    {
+        await _form!.Validate();
+        if (!_form.IsValid) return;
+
+        _busy = true;
+        _error = null;
+        _applicationId = null;
+        _check = null;
+        _model.DateOfBirth = _dob;
+
+        var (submitted, submitError) = await Api.SubmitAsync(_model);
+        if (submitted is null)
+        {
+            _error = submitError;
+            _busy = false;
+            return;
+        }
+        _applicationId = submitted.ApplicationId;
+
+        // Automatically run the benefits check after submission
+        var (check, checkError) = await Api.CheckBenefitsAsync(_applicationId);
+        if (check is null) _error = checkError;
+        _check = check;
+
+        _busy = false;
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_applicationId is null) return;
+        _busy = true;
+        var (check, error) = await Api.GetStatusAsync(_applicationId);
+        if (check is null) _error = error; else _check = check;
+        _busy = false;
+    }
+}
