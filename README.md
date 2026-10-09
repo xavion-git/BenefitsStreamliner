@@ -2,9 +2,9 @@
 
 A skinny vertical slice (proof of architecture) for the Benefits Streamliner project. It proves one complete path works end to end:
 
-**Blazor UI → .NET API → Database → Integration layer → Mock iBenefits → Comparison → Recommendation → Database → Finance**
+**Blazor UI → .NET API → Database → Integration layer → Mock iBenefits → Comparison → Recommendation → Database → Finance review → Mock Business Central**
 
-This is a prototype, not the production system. It uses a mock iBenefits service and a mock Finance service. Both sit behind interfaces so real implementations can replace them later without touching the UI or core logic.
+This is a prototype, not the production system. iBenefits, Finance, and Business Central are all mocked. Each sits behind an interface so a real implementation can replace it later without touching the UI or core logic.
 
 ## What it does
 
@@ -14,7 +14,9 @@ This is a prototype, not the production system. It uses a mock iBenefits service
 4. The system calls `IBenefitsService` (backed by a mock) to get benefit data.
 5. Application data is compared against the iBenefits data and a recommendation (Eligible / Not Eligible, with a reason) is generated.
 6. The recommendation is saved to the database and passed to `IFinanceService`.
-7. If iBenefits is unavailable, the error is logged and a retry is queued. The app does not crash, and the user sees a useful status.
+7. A Finance reviewer clicks **Approve** or **Reject** on the page.
+8. On approval, the application is transferred through `IBusinessCentralService` (mock) and the result is logged.
+9. If iBenefits is unavailable, the error is logged and a retry is queued. The app does not crash, and the user sees a useful status.
 
 ## Tech stack
 
@@ -38,9 +40,12 @@ flowchart TD
     C --> I[IBenefitsService] --> M[Mock iBenefits]
     C --> F[IFinanceService] --> MF[Mock Finance]
     C -. on failure .-> R[Retry Queue] -.-> C
+    A --> D[Decision Service]
+    D --> DB
+    D --> BC[IBusinessCentralService] --> MBC[Mock Business Central]
 ```
 
-### Compare against iBenefits (sequence)
+### Compare against iBenefits, then Finance decision (sequence)
 
 ```mermaid
 sequenceDiagram
@@ -48,6 +53,7 @@ sequenceDiagram
     participant DB as Database
     participant IB as iBenefits
     participant FT as Finance Team
+    participant BC as Business Central
     BS->>DB: Retrieve application data
     DB-->>BS: Return application data
     BS->>IB: Request benefit data
@@ -56,6 +62,15 @@ sequenceDiagram
         BS->>BS: Compare data and generate recommendation
         BS->>DB: Store recommendation
         BS->>FT: Pass recommendation
+        FT->>BS: Submit decision (Approve or Reject)
+        alt Approved
+            BS->>DB: Update status to Approved
+            BS->>BC: Transfer approved application
+            BC-->>BS: Return transfer result
+            BS->>DB: Update status to Transferred
+        else Rejected
+            BS->>DB: Update status to Rejected
+        end
     else iBenefits unavailable
         BS->>BS: Log error
         BS->>BS: Queue retry
@@ -76,9 +91,30 @@ Key pieces:
 
 - `IBenefitsService` / `MockBenefitsService`: the iBenefits integration abstraction and its mock.
 - `IFinanceService` / `MockFinanceService`: the Finance hand-off abstraction and its mock (logs the recommendation).
+- `IBusinessCentralService` / `MockBusinessCentralService`: the Business Central transfer abstraction and its mock (logs the transfer result).
 - `BenefitsCheckService`: runs the compare workflow and handles the unavailable path.
+- `DecisionService`: applies the Finance decision and triggers the Business Central transfer.
 - `RetryQueue` / `RetryWorker`: in-memory retry queue drained by a background service.
 - `RecommendationLogic`: simple, pure comparison logic.
+
+## API endpoints
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/api/applications` | Validate and save an application, return its ID |
+| `POST` | `/api/applications/{id}/check-benefits` | Run the iBenefits comparison and store the recommendation |
+| `GET` | `/api/applications/{id}` | Get current status and recommendation |
+| `POST` | `/api/applications/{id}/decision` | Finance decision. Body: `{"decision":"Approve"}` or `{"decision":"Reject"}` |
+
+The decision endpoint returns `409` if the benefits check isn't completed yet (or a decision was already made) and `404` if the application doesn't exist.
+
+## Application status lifecycle
+
+```
+Submitted → Processing → Completed → Approved → Transferred
+                │            └──────→ Rejected
+                └→ Error (iBenefits unavailable after 3 retries)
+```
 
 ## Prerequisites
 
@@ -143,7 +179,7 @@ dotnet run --project BenefitsStreamliner.Web --urls http://localhost:5200
 
 Open <http://localhost:5200>.
 
-The Web app finds the API through `ApiBaseUrl` in `BenefitsStreamliner.Web/appsettings.json` (default `http://localhost:5100/`).
+The Web app finds the API through `ApiBaseUrl` in `BenefitsStreamliner.Web/appsettings.json` (default `http://localhost:5100/`). Make sure it sits at the top level of the JSON file, not inside the `Logging` section.
 
 ### 6. Run the tests
 
@@ -151,7 +187,9 @@ The Web app finds the API through `ApiBaseUrl` in `BenefitsStreamliner.Web/appse
 dotnet test
 ```
 
-## How the mock iBenefits integration works
+## How the mock integrations work
+
+### iBenefits
 
 `MockBenefitsService` implements `IBenefitsService` and returns predictable data:
 
@@ -168,6 +206,10 @@ It also simulates outages so the failure path can be demonstrated:
 - **Config flag `MockBenefits:AlwaysUnavailable = true`**: every call fails, so the retry queue gives up after 3 attempts and the application is marked `Error`.
 
 To replace the mock with the real system later, write a `RealIBenefitsService : IBenefitsService` and change one line in `BenefitsStreamliner.Api/Program.cs`. Nothing else changes.
+
+### Finance and Business Central
+
+`MockFinanceService` logs the recommendation it receives. `MockBusinessCentralService` logs the transfer of an approved application and returns success. Both are registered in `Program.cs` and can be swapped for real clients the same way as iBenefits.
 
 ## Recommendation logic
 
@@ -190,22 +232,25 @@ These criteria are placeholders for the prototype. Replace them with the team's 
 | 4 | Check the UI | "Recommendation: Eligible" |
 | 5 | Query `SELECT * FROM Recommendations;` | Row with `Recommendation` = `Eligible` |
 | 6 | Check the API console | `[FINANCE] Received recommendation...` |
-| 7 | Submit with income 90000 | "Not Eligible" with an income-limit reason |
-| 8 | Submit with last name `Unavailable` | "Retry queued" message. Console shows an error and a warning |
-| 9 | Wait about 15 seconds, click **Refresh Status** | Status becomes Completed with a recommendation |
-| 10 | Set `MockBenefits:AlwaysUnavailable` to `true`, restart the API, submit | After 3 retries, Status = `Error` |
+| 7 | Click **Approve** in the Finance review section | "Status: Transferred" and console shows `[BUSINESS CENTRAL] Transferred approved application...` |
+| 8 | Query `SELECT ApplicationId, Status FROM Applications;` | Status = `Transferred` |
+| 9 | Submit another application, click **Reject** | "Status: Rejected" and no Business Central log line |
+| 10 | Submit with income 90000 | "Not Eligible" with an income-limit reason |
+| 11 | Submit with last name `Unavailable` | "Retry queued" message. Console shows an error and a warning |
+| 12 | Wait about 15 seconds, click **Refresh Status** | Status becomes Completed with a recommendation, and the Finance review buttons appear |
+| 13 | Set `MockBenefits:AlwaysUnavailable` to `true`, restart the API, submit | After 3 retries, Status = `Error` |
 
 ## Scope and known limitations
 
 This is intentionally minimal. Out of scope for the prototype:
 
-- Real iBenefits integration
-- Full Finance system (the mock only logs)
-- Authentication and authorization
+- Real iBenefits, Finance, and Business Central integrations (all three are mocks)
+- Authentication and authorization (anyone can click Approve or Reject)
 - Durable retry queue (the in-memory queue is lost when the API restarts)
 - Complex eligibility rules
+- Storing the raw iBenefits response (only the recommendation is persisted)
 
-Open question for the team: one acceptance criterion mentions a "Business Central sandbox" alongside the mock iBenefits. This prototype uses the mock iBenefits only.
+Open question for the team: the team's sequence diagram routes the iBenefits data request through the Finance Team, while this prototype calls iBenefits directly from the system (as in the written spec). The `IBenefitsService` interface keeps either option open.
 
 ## Security notes
 
