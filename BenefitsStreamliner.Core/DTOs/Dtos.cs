@@ -1,4 +1,4 @@
-﻿ususing System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace BenefitsStreamliner.Core.DTOs;
 

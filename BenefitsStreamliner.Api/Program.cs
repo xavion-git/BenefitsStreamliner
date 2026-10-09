@@ -13,10 +13,18 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    if (provider.Equals("Sqlite", StringComparison.OrdinalIgnoreCase))
-        options.UseSqlite(connectionString);
-    else
-        options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+    switch (provider.ToLowerInvariant())
+    {
+        case "sqlserver":
+            options.UseSqlServer(connectionString);
+            break;
+        case "sqlite":
+            options.UseSqlite(connectionString);
+            break;
+        default:
+            options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+            break;
+    }
 });
 
 builder.Services.AddScoped<ApplicationService>();
