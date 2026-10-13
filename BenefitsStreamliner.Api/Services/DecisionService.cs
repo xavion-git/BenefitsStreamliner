@@ -1,4 +1,4 @@
-﻿using BenefitsStreamliner.Api.Data;
+using BenefitsStreamliner.Api.Data;
 using BenefitsStreamliner.Core.DTOs;
 using BenefitsStreamliner.Core.Interfaces;
 using BenefitsStreamliner.Core.Models;
@@ -15,16 +15,16 @@ public class DecisionService(AppDbContext db, IBusinessCentralService businessCe
         var app = await db.Applications.FirstOrDefaultAsync(a => a.ApplicationId == applicationId, ct);
         if (app is null) return (null, null);
 
-        if (app.Status != ApplicationStatus.Completed)
-            return (null, $"A decision needs a completed benefits check first (current status: {app.Status}).");
+        if (app.Status != ApplicationStatus.PendingFinanceReview)
+            return (null, $"A Finance decision needs a claim in \"{ApplicationStatus.PendingFinanceReview.Display()}\" " +
+                          $"(current status: {app.Status.Display()}).");
 
         if (!approve)
         {
-            app.Status = ApplicationStatus.Rejected;
+            app.Status = ApplicationStatus.Denied;
             await db.SaveChangesAsync(ct);
-            logger.LogInformation("Finance rejected {Id}", applicationId);
-            return (new CheckBenefitsResult { ApplicationId = applicationId, Status = "Rejected",
-                Message = "Application rejected by Finance." }, null);
+            logger.LogInformation("Finance denied {Id}", applicationId);
+            return (CheckBenefitsResult.From(app, "Claim denied by Finance."), null);
         }
 
         app.Status = ApplicationStatus.Approved;
@@ -34,7 +34,8 @@ public class DecisionService(AppDbContext db, IBusinessCentralService businessCe
         app.Status = ok ? ApplicationStatus.Transferred : ApplicationStatus.Error;
         await db.SaveChangesAsync(ct);
 
-        return (new CheckBenefitsResult { ApplicationId = applicationId, Status = app.Status.ToString(),
-            Message = ok ? "Approved and transferred to Business Central." : "Approved, but the transfer failed." }, null);
+        return (CheckBenefitsResult.From(app, ok
+            ? "Approved and transferred to Business Central."
+            : "Approved, but the transfer failed."), null);
     }
 }

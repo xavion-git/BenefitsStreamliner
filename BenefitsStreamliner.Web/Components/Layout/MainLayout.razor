@@ -1,6 +1,6 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-<MudThemeProvider />
+<MudThemeProvider Theme="_theme" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -9,7 +9,20 @@
     <MudAppBar Elevation="1">
         <MudText Typo="Typo.h6">Benefits Streamliner</MudText>
     </MudAppBar>
-    <MudMainContent>
+    <MudMainContent Style="background:#f3f5f8;min-height:100vh;">
         @Body
     </MudMainContent>
 </MudLayout>
+
+@code {
+    // Brand colours taken from the tuition refund claim form.
+    private readonly MudTheme _theme = new()
+    {
+        PaletteLight = new PaletteLight
+        {
+            Primary = "#1f4e79",
+            AppbarBackground = "#1f4e79",
+            Background = "#f3f5f8"
+        }
+    };
+}

@@ -6,8 +6,10 @@ using Microsoft.EntityFrameworkCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
+builder.Services.AddDataProtection();   // encrypts the SIN before it is stored
 
-var provider = builder.Configuration["Database:Provider"] ?? "MySql";
+// SqlServer is the default. Set Database:Provider to "MySql" or "Sqlite" to switch.
+var provider = builder.Configuration["Database:Provider"] ?? "SqlServer";
 var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException("Missing ConnectionStrings:Default (use user-secrets or an env var).");
 
@@ -15,30 +17,30 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 {
     switch (provider.ToLowerInvariant())
     {
-        case "sqlserver":
-            options.UseSqlServer(connectionString);
+        case "mysql":
+            options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
             break;
         case "sqlite":
             options.UseSqlite(connectionString);
             break;
         default:
-            options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+            options.UseSqlServer(connectionString);
             break;
     }
 });
 
 builder.Services.AddScoped<ApplicationService>();
 builder.Services.AddScoped<BenefitsCheckService>();
-
-// Swap MockBenefitsService for a RealIBenefitsService here later. Nothing else changes.
-builder.Services.AddSingleton<IBenefitsService, MockBenefitsService>();
-builder.Services.AddSingleton<IFinanceService, MockFinanceService>();
-
-builder.Services.AddSingleton<IBusinessCentralService, MockBusinessCentralService>();
 builder.Services.AddScoped<DecisionService>();
 
+// Swap the mocks for real implementations here later. Nothing else changes.
+builder.Services.AddSingleton<IBenefitsService, MockBenefitsService>();
+builder.Services.AddSingleton<IFinanceService, MockFinanceService>();
+builder.Services.AddSingleton<IBusinessCentralService, MockBusinessCentralService>();
+
 builder.Services.AddSingleton<RetryQueue>();
-builder.Services.AddHostedService<RetryWorker>();
+builder.Services.AddHostedService<RetryWorker>();           // iBenefits unavailable -> retry
+builder.Services.AddHostedService<HoursRecheckWorker>();    // Waiting for Hours -> monthly re-check
 
 var app = builder.Build();
 

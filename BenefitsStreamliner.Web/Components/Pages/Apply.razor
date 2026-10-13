@@ -1,64 +1,81 @@
-﻿@page "/"
+@page "/"
 @using BenefitsStreamliner.Core.DTOs
+@using BenefitsStreamliner.Core.Models
+@using BenefitsStreamliner.Core.Rules
 @using BenefitsStreamliner.Web.Services
+@using Microsoft.AspNetCore.Components.Forms
 @inject ApplicationApiClient Api
 
-<PageTitle>Benefits Application</PageTitle>
+<PageTitle>Tuition Refund Program Claim Form</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
-    <MudPaper Class="pa-6" Elevation="3">
-        <MudText Typo="Typo.h5" Class="mb-4">Benefits Application</MudText>
+<style>
+    input[type="file"]::file-selector-button {
+        margin-right: 12px;
+        padding: 7px 14px;
+        border: 1px solid #1f4e79;
+        border-radius: 6px;
+        background: #fff;
+        color: #1f4e79;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    input[type="file"]::file-selector-button:hover { background: #1f4e79; color: #fff; }
+</style>
 
-        <MudForm @ref="_form">
-            <MudTextField @bind-Value="_model.FirstName" Label="First Name" MaxLength="100"
-                          Required="true" RequiredError="First name is required" />
-            <MudTextField @bind-Value="_model.LastName" Label="Last Name" MaxLength="100"
-                          Required="true" RequiredError="Last name is required" />
-            <MudDatePicker @bind-Date="_dob" Label="Date of Birth" OpenTo="OpenTo.Year"
-                           MaxDate="DateTime.Today.AddDays(-1)"
-                           Required="true" RequiredError="Date of birth is required" />
-            <MudNumericField @bind-Value="_model.Income" Label="Annual Income ($)" Min="0" Max="10000000"
-                             Required="true" RequiredError="Income is required" />
-        </MudForm>
+<MudContainer MaxWidth="MaxWidth.Medium" Class="py-6">
 
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4"
-                   Disabled="_busy" OnClick="SubmitAsync">
-            @if (_busy)
-            {
-                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
-            }
-            Submit Application
-        </MudButton>
+    <MudPaper Elevation="0" Class="px-6 py-5 mb-4" Style="background:#1f4e79;color:#fff;border-radius:6px;">
+        <MudText Typo="Typo.h5">Tuition Refund Program Claim Form</MudText>
+    </MudPaper>
+
+    @if (_applicationId is not null)
+    {
+        @* ---------- Confirmation + claim status ---------- *@
+        <MudPaper Elevation="2" Class="pa-6" Style="border-radius:6px;border-left:5px solid #1b5e20;background:#e8f5e9;">
+            <MudText Typo="Typo.h6" Style="color:#1b5e20;">Thank you. Your claim form has been submitted.</MudText>
+            <MudText Class="mt-2">Application ID: <b>@_applicationId</b></MudText>
+            <MudText Typo="Typo.body2" Class="mt-2">
+                Please keep copies of your completed form and backup documents. Allow at least six to eight weeks for processing.
+            </MudText>
+        </MudPaper>
 
         @if (_error is not null)
         {
             <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
         }
 
-        @if (_applicationId is not null)
+        @if (Current is not null)
         {
-            <MudAlert Severity="Severity.Success" Class="mt-4">
-                <b>Application submitted successfully!</b><br />
-                Application ID: <b>@_applicationId</b>
-            </MudAlert>
-        }
+            <MudPaper Elevation="2" Class="pa-6 mt-4" Style="border-radius:6px;">
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Claim status</MudText>
 
-        @if (_check is not null)
-        {
-            @if (_check.Status == "Completed")
-            {
-                <MudAlert Severity="@(_check.Decision == "Eligible" ? Severity.Success : Severity.Warning)" Class="mt-3">
-                    <b>Recommendation: @_check.Decision</b><br />@_check.Reason
+                <MudAlert Severity="@(SeverityFor(Current.Status))">
+                    <b>@Current.StatusLabel</b>
+                    @if (!string.IsNullOrEmpty(Current.Message))
+                    {
+                        <br />
+                        @Current.Message
+                    }
+                    @if (Current.NextRecheckAt is not null)
+                    {
+                        <br />
+                        <span>Next hours re-check: @(Current.NextRecheckAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))</span>
+                    }
                 </MudAlert>
-                <MudText Typo="Typo.caption" Class="mt-2">
-                    Integration status: iBenefits responded. Recommendation stored and sent to Finance.
-                </MudText>
 
-                <MudDivider Class="my-4" />
-                <MudText Typo="Typo.subtitle1">Finance review</MudText>
-
-                @if (_decision is null)
+                @if (_check?.Decision is not null)
                 {
+                    <MudText Typo="Typo.subtitle2" Class="mt-4">Recommendation: @_check.Decision</MudText>
+                    <MudText Typo="Typo.body2">@_check.Reason</MudText>
+                    <MudText Typo="Typo.caption" Class="mt-2">
+                        Integration status: iBenefits responded. Recommendation stored and sent to Finance.
+                    </MudText>
+                }
+
+                @if (_check?.Status == nameof(ApplicationStatus.PendingFinanceReview) && _decision is null)
+                {
+                    <MudDivider Class="my-4" />
+                    <MudText Typo="Typo.subtitle2">Finance review</MudText>
                     <MudStack Row="true" Spacing="2" Class="mt-2">
                         <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="_busy"
                                    OnClick="() => DecideAsync(true)">Approve</MudButton>
@@ -66,53 +83,313 @@
                                    OnClick="() => DecideAsync(false)">Reject</MudButton>
                     </MudStack>
                 }
-                else
+
+                @if (_check?.Status == nameof(ApplicationStatus.WaitingForHours) || _check?.Status == nameof(ApplicationStatus.InReview))
                 {
-                    <MudAlert Severity="@(_decision.Status == "Transferred" ? Severity.Success : Severity.Warning)" Class="mt-2">
-                        <b>Status: @_decision.Status</b><br />@_decision.Message
-                    </MudAlert>
+                    <MudButton Variant="Variant.Outlined" Class="mt-4" Disabled="_busy" OnClick="RefreshAsync">
+                        Refresh status
+                    </MudButton>
                 }
-            }
-            else if (_check.Status is "RetryQueued" or "Processing")
-            {
-                <MudAlert Severity="Severity.Info" Class="mt-3">@_check.Message</MudAlert>
-                <MudButton Variant="Variant.Outlined" Class="mt-2" Disabled="_busy" OnClick="RefreshAsync">
-                    Refresh Status
-                </MudButton>
-            }
-            else
-            {
-                <MudAlert Severity="Severity.Error" Class="mt-3">
-                    @(_check.Message ?? "Something went wrong while checking benefits.")
-                </MudAlert>
-            }
+            </MudPaper>
         }
-    </MudPaper>
+
+        <MudButton Variant="Variant.Text" Class="mt-4" OnClick="StartOver">Submit another claim</MudButton>
+    }
+    else
+    {
+        @* ---------- The claim form ---------- *@
+        <MudPaper Elevation="2" Class="pa-6" Style="border-radius:6px;">
+
+            @if (_errors.Count > 0)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-4">Please fix the highlighted fields below before submitting.</MudAlert>
+            }
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+            }
+
+            <MudTextField @bind-Value="_model.EmployeeName" Label="Employee Name" Variant="Variant.Outlined" Margin="Margin.Dense"
+                          Error="@(Has("EmployeeName"))" ErrorText="@(Err("EmployeeName"))" />
+
+            <MudGrid Spacing="2" Class="mt-1">
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.CertificateNumber" Label="Certificate / Member Number" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  HelperText="Used by Accounting for lookups" MaxLength="30"
+                                  Error="@(Has("CertificateNumber"))" ErrorText="@(Err("CertificateNumber"))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.TuitionCode" Label="Tuition Code" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="20"
+                                  Error="@(Has("TuitionCode"))" ErrorText="@(Err("TuitionCode"))" />
+                </MudItem>
+            </MudGrid>
+
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Social Insurance Number</MudText>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                <MudTextField @bind-Value="_sin1" MaxLength="3" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:90px;"
+                              Error="@(Has("Sin"))" aria-label="SIN first 3 digits" />
+                <MudText>-</MudText>
+                <MudTextField @bind-Value="_sin2" MaxLength="3" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:90px;"
+                              Error="@(Has("Sin"))" aria-label="SIN middle 3 digits" />
+                <MudText>-</MudText>
+                <MudTextField @bind-Value="_sin3" MaxLength="3" Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width:90px;"
+                              Error="@(Has("Sin"))" aria-label="SIN last 3 digits" />
+            </MudStack>
+            <MudText Typo="Typo.caption" Color="Color.Error">@Err("Sin")</MudText>
+
+            <MudTextField @bind-Value="_model.Phone" Label="Phone" InputType="InputType.Telephone" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3"
+                          Error="@(Has("Phone"))" ErrorText="@(Err("Phone"))" />
+            <MudTextField @bind-Value="_model.Email" Label="Email" InputType="InputType.Email" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3"
+                          Error="@(Has("Email"))" ErrorText="@(Err("Email"))" />
+            <MudTextField @bind-Value="_model.MailingAddress" Label="Mailing Address" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3"
+                          Error="@(Has("MailingAddress"))" ErrorText="@(Err("MailingAddress"))" />
+
+            <MudGrid Spacing="2" Class="mt-1">
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.City" Label="City" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("City"))" ErrorText="@(Err("City"))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="string" @bind-Value="_model.Province" ToStringFunc="ProvinceName" Label="Province" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Error="@(Has("Province"))" ErrorText="@(Err("Province"))">
+                        @foreach (var p in Provinces.Selectable)
+                        {
+                            <MudSelectItem T="string" Value="@p.Code">@p.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.PostalCode" Label="Postal Code" MaxLength="7" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("PostalCode"))" ErrorText="@(Err("PostalCode"))" />
+                </MudItem>
+            </MudGrid>
+
+            <MudTextField @bind-Value="_model.CompanyName" Label="Company Name" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3"
+                          Error="@(Has("CompanyName"))" ErrorText="@(Err("CompanyName"))" />
+            <MudTextField @bind-Value="_model.CompanyAddress" Label="Company Address" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3"
+                          Error="@(Has("CompanyAddress"))" ErrorText="@(Err("CompanyAddress"))" />
+
+            <MudGrid Spacing="2" Class="mt-1">
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.CompanyCity" Label="City" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("CompanyCity"))" ErrorText="@(Err("CompanyCity"))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudSelect T="string" @bind-Value="_model.CompanyProvince" ToStringFunc="ProvinceName" Label="Province" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Error="@(Has("CompanyProvince"))" ErrorText="@(Err("CompanyProvince"))">
+                        @foreach (var p in Provinces.Selectable)
+                        {
+                            <MudSelectItem T="string" Value="@p.Code">@p.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField @bind-Value="_model.CompanyPostalCode" Label="Postal Code" MaxLength="7" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("CompanyPostalCode"))" ErrorText="@(Err("CompanyPostalCode"))" />
+                </MudItem>
+            </MudGrid>
+
+            <MudTextField @bind-Value="_model.Trade" Label="Trade or Occupation Training" Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3"
+                          Error="@(Has("Trade"))" ErrorText="@(Err("Trade"))" />
+
+            <MudPaper Outlined="true" Class="pa-3 mt-4" Elevation="0">
+                <MudText Typo="Typo.subtitle2">Year (select one)</MudText>
+                <MudRadioGroup T="string" @bind-Value="_year">
+                    <MudStack Row="true" Spacing="2">
+                        <MudRadio Value="@("1st")" Color="Color.Primary">1st</MudRadio>
+                        <MudRadio Value="@("2nd")" Color="Color.Primary">2nd</MudRadio>
+                        <MudRadio Value="@("3rd")" Color="Color.Primary">3rd</MudRadio>
+                        <MudRadio Value="@("4th")" Color="Color.Primary">4th</MudRadio>
+                    </MudStack>
+                </MudRadioGroup>
+                <MudText Typo="Typo.caption" Color="Color.Error">@Err("TrainingYear")</MudText>
+            </MudPaper>
+
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Date of Training (mm/dd/yyyy)</MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4">
+                    <MudDatePicker @bind-Date="_model.TrainingFrom" Label="From" Editable="true" DateFormat="MM/dd/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Error="@(Has("TrainingFrom"))" ErrorText="@(Err("TrainingFrom"))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudDatePicker @bind-Date="_model.TrainingTo" Label="To" Editable="true" DateFormat="MM/dd/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Error="@(Has("TrainingTo"))" ErrorText="@(Err("TrainingTo"))" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudDatePicker @bind-Date="_model.ReturnedToWork" Label="Returned to Work" Editable="true" DateFormat="MM/dd/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Error="@(Has("ReturnedToWork"))" ErrorText="@(Err("ReturnedToWork"))" />
+                </MudItem>
+            </MudGrid>
+
+            <MudPaper Outlined="true" Class="pa-3 mt-4" Elevation="0">
+                <MudText Typo="Typo.subtitle2">The OpenCircle Tuition Refund is to be paid to the (check one)</MudText>
+                <MudRadioGroup T="string" @bind-Value="_model.PayTo">
+                    <MudStack Row="true" Spacing="2">
+                        <MudRadio Value="@("Employer")" Color="Color.Primary">Employer</MudRadio>
+                        <MudRadio Value="@("Employee")" Color="Color.Primary">Employee</MudRadio>
+                    </MudStack>
+                </MudRadioGroup>
+                <MudText Typo="Typo.caption" Color="Color.Error">@Err("PayTo")</MudText>
+            </MudPaper>
+
+            @* ---------- Uploads ---------- *@
+            <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Marks and Proof of Completion <span style="color:#b00020;">*</span></MudText>
+            <MudPaper Outlined="true" Elevation="0" Class="pa-4" Style="@UploadStyle("Documents")">
+                <InputFile OnChange="OnDocumentsChanged" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
+                @if (_documents.Count > 0)
+                {
+                    <ul style="margin:8px 0 0;padding-left:20px;font-size:0.88rem;color:#5f6b76;">
+                        @foreach (var f in _documents)
+                        {
+                            <li>@f.Name (@(Math.Ceiling(f.Size / 1024.0)) KB)</li>
+                        }
+                    </ul>
+                }
+            </MudPaper>
+            <MudText Typo="Typo.caption">PDF, JPG, PNG, DOC or DOCX, up to 10 MB each (maximum @ClaimValidator.MaxDocuments files).</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Error" Style="display:block;">@Err("Documents")</MudText>
+
+            @if (ClaimValidator.ProofOfPaymentRequired(_model))
+            {
+                <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Proof of Payment <span style="color:#b00020;">*</span></MudText>
+                <MudPaper Outlined="true" Elevation="0" Class="pa-4" Style="@UploadStyle("ProofOfPayment")">
+                    <InputFile OnChange="OnProofChanged" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" />
+                    @if (_proof is not null)
+                    {
+                        <div style="margin-top:8px;font-size:0.88rem;color:#5f6b76;">@_proof.Name (@(Math.Ceiling(_proof.Size / 1024.0)) KB)</div>
+                    }
+                </MudPaper>
+                <MudText Typo="Typo.caption">Required for Ontario and British Columbia apprentices.</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Error" Style="display:block;">@Err("ProofOfPayment")</MudText>
+            }
+
+            @* ---------- Notices (as on the paper form) ---------- *@
+            <ul style="margin:20px 0;padding-left:20px;color:#5f6b76;font-size:0.85rem;">
+                <li style="margin-bottom:6px;">OpenCircle's Tuition Program does not cover: Books, Lockers, Association fees, Journeyman upgrading courses, the cost of challenging an apprenticeship exam, or fees for programs such as OpenCircle's Supervisor Training Program (STP) or Construction Skills Training Program.</li>
+                <li>Personal information contained in this application, and related accompanying documentation, is collected, used, and disclosed for the sole purpose of determining eligibility for, and administration of, the Tuition Refund Program. I authorize my employer (or former employer) to obtain or disclose information relating to this application as necessary, including but not limited to information from or to employers, OpenCircle Benefits, OpenCircle, and/or educational institutions.</li>
+            </ul>
+
+            <MudText Typo="Typo.subtitle2">I have read and accepted the terms and conditions of the Tuition Refund Policy:</MudText>
+
+            <MudGrid Spacing="2" Class="mt-1">
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.EmployeeSignature" Label="Employee Signature" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("EmployeeSignature"))" ErrorText="@(Err("EmployeeSignature"))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_model.EmployeeSignDate" Label="Date" Editable="true" DateFormat="MM/dd/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Error="@(Has("EmployeeSignDate"))" ErrorText="@(Err("EmployeeSignDate"))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.RepName" Label="Employer Representative Name" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("RepName"))" ErrorText="@(Err("RepName"))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.RepPosition" Label="Position" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("RepPosition"))" ErrorText="@(Err("RepPosition"))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudTextField @bind-Value="_model.RepSignature" Label="Representative Signature" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Error="@(Has("RepSignature"))" ErrorText="@(Err("RepSignature"))" />
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudDatePicker @bind-Date="_model.RepSignDate" Label="Date" Editable="true" DateFormat="MM/dd/yyyy" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                   Error="@(Has("RepSignDate"))" ErrorText="@(Err("RepSignDate"))" />
+                </MudItem>
+            </MudGrid>
+
+            <MudText Typo="Typo.caption" Class="mt-4" Style="display:block;color:#5f6b76;">
+                This refund must be included in your annual tax return for the current tax year as taxable income. If your application is approved and paid before the end of this calendar year, a T4A Statement of Other Income Earned for this tax year will be issued to you no later than the end of February next year.
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mt-3" Style="display:block;color:#5f6b76;">
+                <b>This completed form must be submitted, along with a copy of the employee's Marks and Proof of Completion within six months</b> from the date on the employee's Proof of Completion from a recognized training body stating the above has passed the apprenticeship training. <b>Ontario and British Columbia apprentices must submit Proof of Payment.</b>
+            </MudText>
+            <MudText Typo="Typo.caption" Class="mt-3" Style="display:block;color:#5f6b76;">
+                Questions? Email tuition@@opencircle.ca, fax 780.455.2109, or mail OpenCircle, 103-13025 St. Albert Trail, Edmonton, AB T5L 4H5.
+            </MudText>
+            <ul style="margin:12px 0 0;padding-left:20px;color:#5f6b76;font-size:0.85rem;">
+                <li>Keep copies of the completed claim form and backup documents for your personal records.</li>
+                <li>OpenCircle will not be held responsible for refund claims lost in transit or mail.</li>
+                <li>Please allow at least six to eight weeks for processing.</li>
+            </ul>
+
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Size="Size.Large" Class="mt-6"
+                       Disabled="_busy" OnClick="SubmitAsync">
+                @if (_busy)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="me-2" />
+                }
+                Submit
+            </MudButton>
+        </MudPaper>
+    }
 </MudContainer>
 
 @code {
-    private MudForm? _form;
-    private readonly ApplicationRequest _model = new();
-    private DateTime? _dob;
+    private ApplicationRequest _model = new();
+    private string? _sin1, _sin2, _sin3;                 // the three SIN boxes
+    private string? _year;                               // "1st" .. "4th"
+    private List<IBrowserFile> _documents = new();       // Marks and Proof of Completion
+    private IBrowserFile? _proof;                        // Proof of Payment (ON and BC)
+
+    private Dictionary<string, string> _errors = new();
     private bool _busy;
     private string? _error;
     private string? _applicationId;
-    private CheckBenefitsResult? _check;
-    private CheckBenefitsResult? _decision;
+    private CheckBenefitsResult? _check;                 // latest benefits check / status
+    private CheckBenefitsResult? _decision;              // Finance decision, once made
+
+    private CheckBenefitsResult? Current => _decision ?? _check;
+
+    private static string ProvinceName(string? code) =>
+        Provinces.Selectable.FirstOrDefault(p => p.Code == code)?.Name ?? code ?? string.Empty;
+
+    private bool Has(string key) => _errors.ContainsKey(key);
+    private string Err(string key) => _errors.TryGetValue(key, out var message) ? message : string.Empty;
+
+    private string UploadStyle(string key) => Has(key)
+        ? "border:2px dashed #b00020;background:#fdecee;border-radius:6px;"
+        : "border:2px dashed #cfd6dd;background:#fafbfc;border-radius:6px;";
+
+    private static Severity SeverityFor(string status) => status switch
+    {
+        nameof(ApplicationStatus.PendingFinanceReview) or nameof(ApplicationStatus.Approved) or nameof(ApplicationStatus.Transferred) => Severity.Success,
+        nameof(ApplicationStatus.WaitingForHours) => Severity.Warning,
+        nameof(ApplicationStatus.InReview) or nameof(ApplicationStatus.Submitted) => Severity.Info,
+        _ => Severity.Error
+    };
+
+    private void OnDocumentsChanged(InputFileChangeEventArgs e)
+    {
+        _documents = e.GetMultipleFiles(50).ToList();
+        _errors.Remove("Documents");
+    }
+
+    private void OnProofChanged(InputFileChangeEventArgs e)
+    {
+        _proof = e.File;
+        _errors.Remove("ProofOfPayment");
+    }
 
     private async Task SubmitAsync()
     {
-        await _form!.ValidateAsync();
-        if (!_form.IsValid) return;
+        _error = null;
+
+        // Gather the pieces that aren't plain bound fields
+        _model.Sin = $"{_sin1}{_sin2}{_sin3}";
+        _model.TrainingYear = _year switch { "1st" => 1, "2nd" => 2, "3rd" => 3, "4th" => 4, _ => null };
+        var proof = ClaimValidator.ProofOfPaymentRequired(_model) ? _proof : null;
+
+        // Same validation the API runs (SIN checksum, provinces, uploads, ...)
+        _errors = ClaimValidator.Validate(
+            _model,
+            _documents.Select(f => new FileMeta(f.Name, f.Size)).ToList(),
+            proof is null ? null : new FileMeta(proof.Name, proof.Size));
+        if (_errors.Count > 0) return;
 
         _busy = true;
-        _error = null;
-        _applicationId = null;
-        _check = null;
-        _decision = null;
-        _model.DateOfBirth = _dob;
 
-        var (submitted, submitError) = await Api.SubmitAsync(_model);
+        var (submitted, submitError) = await Api.SubmitAsync(_model, _documents, proof);
         if (submitted is null)
         {
             _error = submitError;
@@ -121,6 +398,7 @@
         }
         _applicationId = submitted.ApplicationId;
 
+        // Automatically run the benefits check after submission
         var (check, checkError) = await Api.CheckBenefitsAsync(_applicationId);
         if (check is null) _error = checkError;
         _check = check;
@@ -132,6 +410,7 @@
     {
         if (_applicationId is null) return;
         _busy = true;
+        _error = null;
         var (check, error) = await Api.GetStatusAsync(_applicationId);
         if (check is null) _error = error; else _check = check;
         _busy = false;
@@ -145,5 +424,18 @@
         var (result, error) = await Api.DecideAsync(_applicationId, approve);
         if (result is null) _error = error; else _decision = result;
         _busy = false;
+    }
+
+    private void StartOver()
+    {
+        _model = new ApplicationRequest();
+        _sin1 = _sin2 = _sin3 = _year = null;
+        _documents = new();
+        _proof = null;
+        _errors = new();
+        _error = null;
+        _applicationId = null;
+        _check = null;
+        _decision = null;
     }
 }
