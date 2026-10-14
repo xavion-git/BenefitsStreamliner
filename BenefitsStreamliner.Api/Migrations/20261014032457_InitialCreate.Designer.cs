@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BenefitsStreamliner.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20261013195218_InitialCreate")]
+    [Migration("20261014032457_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -40,28 +40,28 @@ namespace BenefitsStreamliner.Api.Migrations
 
                     b.Property<string>("CertificateNumber")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)");
+                        .HasMaxLength(15)
+                        .HasColumnType("nvarchar(15)");
 
                     b.Property<string>("City")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<string>("CompanyAddress")
                         .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<string>("CompanyCity")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<string>("CompanyName")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<string>("CompanyPostalCode")
                         .IsRequired()
@@ -76,28 +76,37 @@ namespace BenefitsStreamliner.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("DuplicateOfApplicationId")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
                     b.Property<string>("Email")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("EmployeeName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
 
                     b.Property<DateTime>("EmployeeSignDate")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("EmployeeSignature")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("nvarchar(60)");
 
                     b.Property<string>("MailingAddress")
                         .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<DateTime?>("NextRecheckAt")
                         .HasColumnType("datetime2");
@@ -109,8 +118,8 @@ namespace BenefitsStreamliner.Api.Migrations
 
                     b.Property<string>("Phone")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("PostalCode")
                         .IsRequired()
@@ -124,21 +133,21 @@ namespace BenefitsStreamliner.Api.Migrations
 
                     b.Property<string>("RepName")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<string>("RepPosition")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<DateTime>("RepSignDate")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("RepSignature")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
 
                     b.Property<DateTime>("ReturnedToWork")
                         .HasColumnType("datetime2");
@@ -158,13 +167,21 @@ namespace BenefitsStreamliner.Api.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
 
+                    b.Property<DateTime>("TermsAcceptedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("Trade")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<DateTime>("TrainingFrom")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("TrainingProvince")
+                        .IsRequired()
+                        .HasMaxLength(2)
+                        .HasColumnType("nvarchar(2)");
 
                     b.Property<DateTime>("TrainingTo")
                         .HasColumnType("datetime2");
@@ -172,18 +189,12 @@ namespace BenefitsStreamliner.Api.Migrations
                     b.Property<int>("TrainingYear")
                         .HasColumnType("int");
 
-                    b.Property<string>("TuitionCode")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ApplicationId")
                         .IsUnique();
 
-                    b.HasIndex("CertificateNumber", "TuitionCode")
-                        .IsUnique();
+                    b.HasIndex("CertificateNumber");
 
                     b.ToTable("Applications");
                 });

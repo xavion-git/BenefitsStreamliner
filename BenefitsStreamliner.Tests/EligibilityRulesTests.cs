@@ -17,7 +17,7 @@ public class EligibilityRulesTests
     private static BenefitsData Data(decimal hours = 200, string status = "Valid", int monthsOut = 0,
         bool onHire = false, bool member = true, bool fullTime = true, bool found = true) => new()
     {
-        CertificateNumber = "CERT-1001", Found = found, BenefitStatus = status, HoursWorked = hours,
+        CertificateNumber = "1001", Found = found, BenefitStatus = status, HoursWorked = hours,
         MonthsOutOfBenefit = monthsOut, StartedTrainingOnHire = onHire, EmployerIsMember = member, FullTime = fullTime
     };
 

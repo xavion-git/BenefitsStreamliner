@@ -12,21 +12,26 @@ public class ApplicationsController(
     BenefitsCheckService checks,
     ILogger<ApplicationsController> logger) : ControllerBase
 {
-    // multipart/form-data: the claim fields, plus files named "documents" (Marks and Proof of Completion,
-    // one or more) and "proofOfPayment" (required for ON and BC).
+    // multipart/form-data: the claim fields, plus files named "completionDocs" (Marks and Proof of Completion)
+    // and "paymentDocs" (Proof of Payment, required when the training province is ON or BC).
     [HttpPost]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(100_000_000)]
+    [RequestSizeLimit(150_000_000)]
     public async Task<ActionResult<ApplicationResponse>> Submit([FromForm] ApplicationRequest request, CancellationToken ct)
     {
-        var documents = Request.Form.Files.GetFiles("documents");
-        var proofOfPayment = Request.Form.Files.GetFile("proofOfPayment");
+        var completionDocs = Request.Form.Files.GetFiles("completionDocs");
 
-        // Same rules the Blazor form uses (SIN checksum, provinces, uploads, ...). The API is the authority.
+        // Payment documents only count when the training province needs them (as on the form).
+        IReadOnlyList<IFormFile> paymentDocs = ClaimValidator.ProofOfPaymentRequired(request)
+            ? Request.Form.Files.GetFiles("paymentDocs")
+            : Array.Empty<IFormFile>();
+
+        // Same rules the Blazor form uses (SIN checksum, provinces, dates, uploads, ...). The API is the authority.
         var errors = ClaimValidator.Validate(
             request,
-            documents.Select(f => new FileMeta(f.FileName, f.Length)).ToList(),
-            proofOfPayment is null ? null : new FileMeta(proofOfPayment.FileName, proofOfPayment.Length));
+            completionDocs.Select(f => new FileMeta(f.FileName, f.Length)).ToList(),
+            paymentDocs.Select(f => new FileMeta(f.FileName, f.Length)).ToList(),
+            DateTime.Today);
 
         if (errors.Count > 0)
         {
@@ -36,16 +41,7 @@ public class ApplicationsController(
 
         try
         {
-            var (id, duplicateOf) = await applications.SubmitAsync(request, documents, proofOfPayment, ct);
-
-            if (id is null)
-                return Conflict(new ProblemDetails
-                {
-                    Status = StatusCodes.Status409Conflict,
-                    Title = "Duplicate claim",
-                    Detail = $"A claim for this certificate number and tuition code already exists ({duplicateOf})."
-                });
-
+            var id = await applications.SubmitAsync(request, completionDocs, paymentDocs, ct);
             return Ok(new ApplicationResponse(id));
         }
         catch (Exception ex)

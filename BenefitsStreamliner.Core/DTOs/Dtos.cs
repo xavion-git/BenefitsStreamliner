@@ -6,7 +6,9 @@ namespace BenefitsStreamliner.Core.DTOs;
 // so the API and the Blazor form use exactly the same rules.
 public class ApplicationRequest
 {
-    public string? EmployeeName { get; set; }
+    // 1. Employee
+    public string? FirstName { get; set; }
+    public string? LastName { get; set; }
     public string? Sin { get; set; }                  // 9 digits (the form joins its three boxes)
     public string? Phone { get; set; }
     public string? Email { get; set; }
@@ -14,23 +16,28 @@ public class ApplicationRequest
     public string? City { get; set; }
     public string? Province { get; set; }
     public string? PostalCode { get; set; }
+    public string? CertificateNumber { get; set; }    // required, digits only
 
+    // 2. Employer
     public string? CompanyName { get; set; }
     public string? CompanyAddress { get; set; }
     public string? CompanyCity { get; set; }
     public string? CompanyProvince { get; set; }
     public string? CompanyPostalCode { get; set; }
 
+    // 3. Training
     public string? Trade { get; set; }
     public int? TrainingYear { get; set; }
+    public string? TrainingProvince { get; set; }     // province where the training was completed
     public DateTime? TrainingFrom { get; set; }
     public DateTime? TrainingTo { get; set; }
     public DateTime? ReturnedToWork { get; set; }
+
+    // 4. Refund payment
     public string? PayTo { get; set; }                // Employer | Employee
 
-    public string? CertificateNumber { get; set; }
-    public string? TuitionCode { get; set; }
-
+    // 6. Declaration
+    public bool? AcceptTerms { get; set; }
     public string? EmployeeSignature { get; set; }
     public DateTime? EmployeeSignDate { get; set; }
     public string? RepName { get; set; }

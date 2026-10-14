@@ -1,18 +1,20 @@
 namespace BenefitsStreamliner.Core.Models;
 
-// Display names for statuses. "Waiting for Hours" and "Denied" come from the current-state doc.
-// The others are working names: confirm them against the doc and rename here if they differ.
+// Display names for statuses: the agreed names from the Tuition Refund future-state flow.
+// "Error" is not in that flow; it covers technical failures only.
 public static class StatusNames
 {
     public static string Display(this ApplicationStatus status) => status switch
     {
-        ApplicationStatus.Submitted => "Submitted",
-        ApplicationStatus.InReview => "In Review",                          // TO CONFIRM
+        ApplicationStatus.New => "New",
+        ApplicationStatus.MissingDocuments => "Missing Documents",
+        ApplicationStatus.Duplicate => "Duplicate",
+        ApplicationStatus.Reviewing => "Reviewing",
         ApplicationStatus.WaitingForHours => "Waiting for Hours",
-        ApplicationStatus.PendingFinanceReview => "Pending Finance Review", // TO CONFIRM
-        ApplicationStatus.Approved => "Approved",                           // TO CONFIRM
+        ApplicationStatus.PendingApproval => "Pending Approval",
+        ApplicationStatus.Approved => "Approved",
         ApplicationStatus.Denied => "Denied",
-        ApplicationStatus.Transferred => "Transferred",                     // TO CONFIRM
+        ApplicationStatus.ChequePrinted => "Cheque Printed",
         ApplicationStatus.Error => "Error",
         _ => status.ToString()
     };

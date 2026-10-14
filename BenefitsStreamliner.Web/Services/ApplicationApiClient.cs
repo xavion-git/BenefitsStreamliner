@@ -11,7 +11,7 @@ public class ApplicationApiClient(HttpClient http)
 {
     // The claim is sent as multipart/form-data so the uploaded files travel with it.
     public async Task<(ApplicationResponse? Data, string? Error)> SubmitAsync(
-        ApplicationRequest req, IReadOnlyList<IBrowserFile> documents, IBrowserFile? proofOfPayment)
+        ApplicationRequest req, IReadOnlyList<IBrowserFile> completionDocs, IReadOnlyList<IBrowserFile> paymentDocs)
     {
         try
         {
@@ -23,7 +23,8 @@ public class ApplicationApiClient(HttpClient http)
             }
             void AddDate(string name, DateTime? value) => Add(name, value?.ToString("yyyy-MM-dd"));
 
-            Add(nameof(req.EmployeeName), req.EmployeeName);
+            Add(nameof(req.FirstName), req.FirstName);
+            Add(nameof(req.LastName), req.LastName);
             Add(nameof(req.Sin), SinValidator.Digits(req.Sin));
             Add(nameof(req.Phone), req.Phone);
             Add(nameof(req.Email), req.Email);
@@ -31,6 +32,7 @@ public class ApplicationApiClient(HttpClient http)
             Add(nameof(req.City), req.City);
             Add(nameof(req.Province), req.Province);
             Add(nameof(req.PostalCode), req.PostalCode);
+            Add(nameof(req.CertificateNumber), req.CertificateNumber);
             Add(nameof(req.CompanyName), req.CompanyName);
             Add(nameof(req.CompanyAddress), req.CompanyAddress);
             Add(nameof(req.CompanyCity), req.CompanyCity);
@@ -38,12 +40,12 @@ public class ApplicationApiClient(HttpClient http)
             Add(nameof(req.CompanyPostalCode), req.CompanyPostalCode);
             Add(nameof(req.Trade), req.Trade);
             Add(nameof(req.TrainingYear), req.TrainingYear?.ToString());
+            Add(nameof(req.TrainingProvince), req.TrainingProvince);
             AddDate(nameof(req.TrainingFrom), req.TrainingFrom);
             AddDate(nameof(req.TrainingTo), req.TrainingTo);
             AddDate(nameof(req.ReturnedToWork), req.ReturnedToWork);
             Add(nameof(req.PayTo), req.PayTo);
-            Add(nameof(req.CertificateNumber), req.CertificateNumber);
-            Add(nameof(req.TuitionCode), req.TuitionCode);
+            Add(nameof(req.AcceptTerms), req.AcceptTerms == true ? "true" : "false");
             Add(nameof(req.EmployeeSignature), req.EmployeeSignature);
             AddDate(nameof(req.EmployeeSignDate), req.EmployeeSignDate);
             Add(nameof(req.RepName), req.RepName);
@@ -51,10 +53,10 @@ public class ApplicationApiClient(HttpClient http)
             Add(nameof(req.RepSignature), req.RepSignature);
             AddDate(nameof(req.RepSignDate), req.RepSignDate);
 
-            foreach (var file in documents)
-                content.Add(new StreamContent(file.OpenReadStream(ClaimValidator.MaxFileBytes)), "documents", file.Name);
-            if (proofOfPayment is not null)
-                content.Add(new StreamContent(proofOfPayment.OpenReadStream(ClaimValidator.MaxFileBytes)), "proofOfPayment", proofOfPayment.Name);
+            foreach (var file in completionDocs)
+                content.Add(new StreamContent(file.OpenReadStream(ClaimValidator.MaxFileBytes)), "completionDocs", file.Name);
+            foreach (var file in paymentDocs)
+                content.Add(new StreamContent(file.OpenReadStream(ClaimValidator.MaxFileBytes)), "paymentDocs", file.Name);
 
             var response = await http.PostAsync("api/applications", content);
             if (response.IsSuccessStatusCode)
@@ -100,11 +102,11 @@ public class ApplicationApiClient(HttpClient http)
         }
     }
 
-    // 400 (validation) and 409 (duplicate claim) carry messages we wrote, so they are safe to show.
+    // 400 (validation) carries messages we wrote, so they are safe to show.
     // Anything else gets a generic message: no stack traces or internals reach the user.
     private static async Task<string> DescribeFailureAsync(HttpResponseMessage response)
     {
-        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Conflict)
+        if (response.StatusCode == HttpStatusCode.BadRequest)
         {
             try
             {

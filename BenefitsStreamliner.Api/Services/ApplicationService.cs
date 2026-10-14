@@ -3,10 +3,11 @@ using BenefitsStreamliner.Core.DTOs;
 using BenefitsStreamliner.Core.Models;
 using BenefitsStreamliner.Core.Rules;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.EntityFrameworkCore;
 
 namespace BenefitsStreamliner.Api.Services;
 
+// Stores a validated claim with Status = New. The duplicate check and the eligibility rules
+// run next, in BenefitsCheckService (the flow's "Store application" -> "Duplicate claim found?" order).
 public class ApplicationService(
     AppDbContext db,
     IDataProtectionProvider dataProtection,
@@ -17,39 +18,32 @@ public class ApplicationService(
     // The SIN is encrypted before it touches the database.
     private readonly IDataProtector _sinProtector = dataProtection.CreateProtector("BenefitsStreamliner.Sin.v1");
 
-    /// Success: (applicationId, null).
-    /// Duplicate certificate number + tuition code: (null, id of the existing claim).
-    /// The request has already passed ClaimValidator.
-    public async Task<(string? ApplicationId, string? DuplicateOf)> SubmitAsync(
-        ApplicationRequest req, IReadOnlyList<IFormFile> documents, IFormFile? proofOfPayment,
+    /// Returns the new application ID. The request has already passed ClaimValidator.
+    public async Task<string> SubmitAsync(
+        ApplicationRequest req,
+        IReadOnlyList<IFormFile> completionDocs,
+        IReadOnlyList<IFormFile> paymentDocs,
         CancellationToken ct = default)
     {
-        var certificate = Clean(req.CertificateNumber).ToUpperInvariant();
-        var tuitionCode = Clean(req.TuitionCode).ToUpperInvariant();
-
-        // Duplicate check on certificate number + tuition code
-        var duplicate = await db.Applications
-            .Where(a => a.CertificateNumber == certificate && a.TuitionCode == tuitionCode)
-            .Select(a => a.ApplicationId)
-            .FirstOrDefaultAsync(ct);
-        if (duplicate is not null) return (null, duplicate);
-
         var sin = SinValidator.Digits(req.Sin);
+        var now = DateTime.UtcNow;
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
         var entity = new Application
         {
             ApplicationId = "TEMP-" + Guid.NewGuid().ToString("N"),   // unique placeholder until we have the Id
-            EmployeeName = Clean(req.EmployeeName),
+            FirstName = Clean(req.FirstName),
+            LastName = Clean(req.LastName),
             SinEncrypted = _sinProtector.Protect(sin),
             SinLast3 = sin[^3..],
-            Phone = Clean(req.Phone),
+            Phone = FormatPhone(req.Phone),
             Email = Clean(req.Email),
             MailingAddress = Clean(req.MailingAddress),
             City = Clean(req.City),
             Province = Clean(req.Province).ToUpperInvariant(),
             PostalCode = NormalizePostal(req.PostalCode),
+            CertificateNumber = Clean(req.CertificateNumber),
             CompanyName = Clean(req.CompanyName),
             CompanyAddress = Clean(req.CompanyAddress),
             CompanyCity = Clean(req.CompanyCity),
@@ -57,20 +51,20 @@ public class ApplicationService(
             CompanyPostalCode = NormalizePostal(req.CompanyPostalCode),
             Trade = Clean(req.Trade),
             TrainingYear = req.TrainingYear!.Value,
+            TrainingProvince = Clean(req.TrainingProvince).ToUpperInvariant(),
             TrainingFrom = req.TrainingFrom!.Value.Date,
             TrainingTo = req.TrainingTo!.Value.Date,
             ReturnedToWork = req.ReturnedToWork!.Value.Date,
             PayTo = Clean(req.PayTo),
-            CertificateNumber = certificate,
-            TuitionCode = tuitionCode,
+            TermsAcceptedAt = now,
             EmployeeSignature = Clean(req.EmployeeSignature),
             EmployeeSignDate = req.EmployeeSignDate!.Value.Date,
             RepName = Clean(req.RepName),
             RepPosition = Clean(req.RepPosition),
             RepSignature = Clean(req.RepSignature),
             RepSignDate = req.RepSignDate!.Value.Date,
-            Status = ApplicationStatus.Submitted,
-            CreatedAt = DateTime.UtcNow
+            Status = ApplicationStatus.New,
+            CreatedAt = now
         };
 
         db.Applications.Add(entity);
@@ -83,10 +77,10 @@ public class ApplicationService(
         try
         {
             Directory.CreateDirectory(folder);
-            foreach (var file in documents)
+            foreach (var file in completionDocs)
                 await AddDocumentAsync(entity, folder, file, DocumentTypes.MarksAndCompletion, ct);
-            if (proofOfPayment is not null)
-                await AddDocumentAsync(entity, folder, proofOfPayment, DocumentTypes.ProofOfPayment, ct);
+            foreach (var file in paymentDocs)
+                await AddDocumentAsync(entity, folder, file, DocumentTypes.ProofOfPayment, ct);
 
             await db.SaveChangesAsync(ct);
             await tx.CommitAsync(ct);
@@ -97,8 +91,8 @@ public class ApplicationService(
             throw;
         }
 
-        logger.LogInformation("Saved {Id} with {Count} document(s).", entity.ApplicationId, entity.Documents.Count);
-        return (entity.ApplicationId, null);
+        logger.LogInformation("Stored {Id} (New) with {Count} document(s).", entity.ApplicationId, entity.Documents.Count);
+        return entity.ApplicationId;
     }
 
     private async Task AddDocumentAsync(Application app, string folder, IFormFile file, string type, CancellationToken ct)
@@ -131,10 +125,18 @@ public class ApplicationService(
 
     private static string Clean(string? value) => (value ?? string.Empty).Trim();
 
-    // "t5l4h5", "T5L-4H5" and "T5L 4H5" all become "T5L 4H5".
+    // "t5l4h5" and "T5L 4H5" both become "T5L 4H5".
     private static string NormalizePostal(string? value)
     {
         var p = new string(Clean(value).Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant();
         return p.Length == 6 ? $"{p[..3]} {p[3..]}" : p;
+    }
+
+    // 7805551234, 1-780-555-1234 and (780) 555-1234 all become "(780) 555-1234".
+    private static string FormatPhone(string? value)
+    {
+        var d = SinValidator.Digits(value);
+        if (d.Length == 11 && d[0] == '1') d = d[1..];
+        return d.Length == 10 ? $"({d[..3]}) {d[3..6]}-{d[6..]}" : Clean(value);
     }
 }

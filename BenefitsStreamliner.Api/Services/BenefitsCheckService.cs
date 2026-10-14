@@ -7,7 +7,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BenefitsStreamliner.Api.Services;
 
-// The "Compare Against iBenefits" workflow, now using the real tuition refund rules.
+// The system lane of the future-state flow:
+// New -> duplicate check -> Reviewing (iBenefits + rules) -> Pending Approval / Waiting for Hours / Denied.
 public class BenefitsCheckService(
     AppDbContext db,
     IBenefitsService benefits,
@@ -23,17 +24,38 @@ public class BenefitsCheckService(
         if (app is null) return null;
 
         // Only new claims, queued retries and "Waiting for Hours" claims can be (re)checked.
-        if (app.Status is not (ApplicationStatus.Submitted or ApplicationStatus.InReview or ApplicationStatus.WaitingForHours))
-            return CheckBenefitsResult.From(app, "This application has already been decided.");
+        if (app.Status is not (ApplicationStatus.New or ApplicationStatus.Reviewing or ApplicationStatus.WaitingForHours))
+            return CheckBenefitsResult.From(app, "This application has already been processed.");
+
+        // 2. Duplicate claim? Same certificate number as an earlier claim that isn't itself a duplicate.
+        //    (For now the certificate number alone identifies the claim: there is no tuition code on the form.)
+        if (app.Status == ApplicationStatus.New)
+        {
+            var original = await db.Applications
+                .Where(a => a.CertificateNumber == app.CertificateNumber && a.Id < app.Id && a.Status != ApplicationStatus.Duplicate)
+                .OrderBy(a => a.Id)
+                .Select(a => a.ApplicationId)
+                .FirstOrDefaultAsync(ct);
+
+            if (original is not null)
+            {
+                app.Status = ApplicationStatus.Duplicate;
+                app.DuplicateOfApplicationId = original;
+                await db.SaveChangesAsync(ct);
+                logger.LogWarning("{Id} is a duplicate of {Original}. Processing stopped.", applicationId, original);
+                return CheckBenefitsResult.From(app,
+                    $"A claim for this certificate number was already submitted ({original}). Processing has stopped.");
+            }
+        }
 
         var wasWaiting = app.Status == ApplicationStatus.WaitingForHours;
         if (!wasWaiting)
         {
-            app.Status = ApplicationStatus.InReview;
+            app.Status = ApplicationStatus.Reviewing;
             await db.SaveChangesAsync(ct);
         }
 
-        // 2. Request benefit data from iBenefits (via the abstraction)
+        // 3. Request benefit data from iBenefits (via the abstraction)
         BenefitsData data;
         try
         {
@@ -60,11 +82,11 @@ public class BenefitsCheckService(
             return CheckBenefitsResult.From(app, "iBenefits remained unavailable after several attempts. Please contact support.");
         }
 
-        // 3. Compare and generate the recommendation
+        // 4. Compare and generate the recommendation
         var result = EligibilityRules.Evaluate(app, data, DateTime.UtcNow);
         var (status, decision) = result.Outcome switch
         {
-            EligibilityOutcome.Eligible => (ApplicationStatus.PendingFinanceReview, "Eligible"),
+            EligibilityOutcome.Eligible => (ApplicationStatus.PendingApproval, "Eligible"),
             EligibilityOutcome.WaitingForHours => (ApplicationStatus.WaitingForHours, ApplicationStatus.WaitingForHours.Display()),
             _ => (ApplicationStatus.Denied, ApplicationStatus.Denied.Display())
         };
@@ -74,12 +96,12 @@ public class BenefitsCheckService(
             ? NextRecheck(DateTime.UtcNow, EligibilityRules.HoursDeadline(app))
             : null;
 
-        // 4. Store the recommendation
+        // 5. Store the recommendation
         var rec = new Recommendation { ApplicationId = app.ApplicationId, Decision = decision, Reason = result.Reason };
         db.Recommendations.Add(rec);
         await db.SaveChangesAsync(ct);
 
-        // 5. Pass the recommendation to Finance
+        // 6. Pass the recommendation on (Finance / Accounting)
         await finance.SendRecommendationAsync(rec, ct);
 
         return CheckBenefitsResult.From(app, decision: decision, reason: result.Reason);
@@ -95,7 +117,12 @@ public class BenefitsCheckService(
             .OrderByDescending(r => r.Id)
             .FirstOrDefaultAsync();
 
-        var message = app.Status == ApplicationStatus.InReview ? "Still waiting on iBenefits (retry queued)." : null;
+        var message = app.Status switch
+        {
+            ApplicationStatus.Reviewing => "Still waiting on iBenefits (retry queued).",
+            ApplicationStatus.Duplicate => $"A claim for this certificate number was already submitted ({app.DuplicateOfApplicationId}). Processing has stopped.",
+            _ => null
+        };
         return CheckBenefitsResult.From(app, message, rec?.Decision, rec?.Reason);
     }
 
